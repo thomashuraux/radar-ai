@@ -42,7 +42,7 @@ collect → analyze → serve
 - **Summaries**: TextRank extraction via `sumy`
 - **Persistence**: SQLite (WAL mode), complete history by date
 - **Backend**: FastAPI + Jinja2
-- **UI**: dark theme, responsive, pull-to-refresh (mobile + trackpad)
+- **UI**: dark theme, responsive
 
 ---
 
@@ -51,31 +51,74 @@ collect → analyze → serve
 ```bash
 git clone https://github.com/ThomasHuraux/RadarAI.git
 cd RadarAI
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 python -c “import nltk; nltk.download(‘punkt’); nltk.download(‘punkt_tab’); nltk.download(‘stopwords’)”
 ```
+
+> **Python 3.14+**: `numpy>=2`, `scikit-learn`, and `scipy` install fine. `torch` and `sentence-transformers` are not yet compatible — the app falls back to TF-IDF+SVD automatically.
 
 ---
 
 ## Usage
 
 ```bash
-# Full pipeline (collect + analyze + digest in terminal)
-python main.py run
+# Web interface at http://localhost:8000 (auto-refreshes every hour)
+venv/bin/python main.py serve
 
-# Separate steps
-python main.py collect
-python main.py analyze
-python main.py digest
+# Manual pipeline steps
+venv/bin/python main.py collect
+venv/bin/python main.py analyze
+venv/bin/python main.py digest
 
-# Web interface at http://localhost:8000
-python main.py serve
+# Full pipeline in one command
+venv/bin/python main.py run
 
 # Target a specific date
-python main.py collect --date 2026-04-15
-python main.py analyze --date 2026-04-15
+venv/bin/python main.py collect --date 2026-04-15
+venv/bin/python main.py analyze --date 2026-04-15
+```
+
+The server runs an **hourly background pipeline** automatically — no manual refresh needed. New articles are collected and clusters are recomputed throughout the day.
+
+---
+
+## Running as a Background Service (macOS)
+
+To run the server persistently without a terminal, register it as a launchd agent:
+
+```bash
+# Create the plist
+cat > ~/Library/LaunchAgents/com.radarai.server.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.radarai.server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/RadarAI/venv/bin/python</string>
+        <string>/path/to/RadarAI/main.py</string>
+        <string>serve</string>
+    </array>
+    <key>WorkingDirectory</key><string>/path/to/RadarAI</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/path/to/RadarAI/logs/server.log</string>
+    <key>StandardErrorPath</key><string>/path/to/RadarAI/logs/server.error.log</string>
+</dict>
+</plist>
+EOF
+
+mkdir -p logs
+launchctl load ~/Library/LaunchAgents/com.radarai.server.plist
+```
+
+```bash
+# Stop / restart
+launchctl unload ~/Library/LaunchAgents/com.radarai.server.plist
+launchctl load ~/Library/LaunchAgents/com.radarai.server.plist
 ```
 
 ---
@@ -115,7 +158,7 @@ RadarAI/
 │   ├── storage/
 │   │   └── db.py                  # SQLite (articles + clusters)
 │   └── api/
-│       └── app.py                 # FastAPI (UI + /api/refresh)
+│       └── app.py                 # FastAPI (UI + hourly background pipeline)
 └── .github/workflows/
     └── daily_radar.yml
 ```
