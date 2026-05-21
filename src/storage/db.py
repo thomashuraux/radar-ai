@@ -6,12 +6,12 @@ from typing import Optional
 
 # Base de données SQLite stockée dans data/radar.db à la racine du projet.
 # Path(__file__) remonte depuis src/storage/ jusqu'à la racine avec .parent.parent.parent
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "radar.db"
+DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "radar.db"
 
 
 def get_conn() -> sqlite3.Connection:
-    # Crée le dossier data/ s'il n'existe pas encore
-    DB_PATH.parent.mkdir(exist_ok=True)
+    # resolve() garantit un chemin absolu même si __file__ est relatif (ex: launchd)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     # row_factory = sqlite3.Row : les résultats sont accessibles par nom de colonne
     # (ex: row["title"]) plutôt que par index numérique (row[2])

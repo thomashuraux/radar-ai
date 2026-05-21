@@ -1,4 +1,5 @@
 import sys
+import threading
 from pathlib import Path
 from datetime import date
 from fastapi import FastAPI, Request
@@ -21,9 +22,63 @@ def render_template(name: str, context: dict) -> str:
     return tmpl.render(**context)
 
 
+def _pipeline(today: str):
+    from src.collector.rss_collector import collect_rss
+    from src.collector.arxiv_collector import collect_arxiv
+    from src.collector.semanticscholar_collector import collect_semanticscholar
+    from src.processor.cleaner import clean_article, is_valid_article
+    from src.processor.deduplicator import deduplicate
+    from src.nlp.embedder import embed_articles, get_embeddings_matrix
+    from src.nlp.clusterer import cluster_articles
+    from src.trends.detector import build_clusters
+
+    articles = collect_rss() + collect_arxiv() + collect_semanticscholar()
+    articles = [clean_article(a) for a in articles]
+    articles = [a for a in articles if a["title"] and is_valid_article(a)]
+    articles = deduplicate(articles)
+
+    saved = 0
+    for a in articles:
+        if not db.article_exists(a["id"]):
+            db.upsert_article(a)
+            saved += 1
+
+    today_articles = db.get_articles_by_date(today)
+    if not today_articles:
+        print("[auto-refresh] No articles collected for today.")
+        return
+
+    today_articles = embed_articles(today_articles)
+    for a in today_articles:
+        db.upsert_article(a)
+
+    embeddings = get_embeddings_matrix(today_articles)
+    today_articles = cluster_articles(today_articles, embeddings)
+    for a in today_articles:
+        db.update_article_cluster(a["id"], a["cluster_id"])
+
+    clusters = build_clusters(today_articles, today)
+    db.save_clusters(clusters, today)
+    print(f"[auto-refresh] Done — {saved} articles saved, {len(clusters)} clusters.")
+
+
+def _daily_refresh_loop():
+    import time
+    RUN_INTERVAL = 3600  # run every hour
+    while True:
+        today = date.today().isoformat()
+        print(f"[auto-refresh] Running pipeline for {today}...")
+        try:
+            _pipeline(today)
+        except Exception as e:
+            print(f"[auto-refresh] Pipeline error: {e}")
+        time.sleep(RUN_INTERVAL)
+
+
 @app.on_event("startup")
 def startup():
     db.init_db()
+    threading.Thread(target=_daily_refresh_loop, daemon=True).start()
 
 
 @app.get("/", response_class=HTMLResponse)

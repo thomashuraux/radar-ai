@@ -109,27 +109,6 @@
       transition: background .12s;
     }
     .nav-btn:hover { background: var(--ink); color: #fff; }
-    .refresh-btn {
-      background: var(--ink);
-      color: #fff;
-      border: none;
-      padding: .3rem .85rem;
-      font-size: .72rem;
-      font-weight: 600;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: .4rem;
-      transition: opacity .15s;
-    }
-    .refresh-btn:hover { opacity: .75; }
-    .refresh-btn:disabled { opacity: .35; cursor: not-allowed; }
-    .refresh-btn .spin { display: none; animation: spin .7s linear infinite; }
-    .refresh-btn.loading .spin { display: inline; }
-    .refresh-btn.loading .icon { display: none; }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Layout ── */
     .container {
@@ -389,13 +368,6 @@
       </form>
       <button class="nav-btn" onclick="shiftDate(1)" {% if selected_date == today %}disabled style="opacity:.25;cursor:not-allowed"{% endif %}>&#8594;</button>
       <span style="flex:1"></span>
-      {% if selected_date == today %}
-      <button class="refresh-btn" id="refreshBtn" onclick="doRefresh()">
-        <span class="icon">&#8635;</span>
-        <span class="spin">&#8987;</span>
-        Refresh
-      </button>
-      {% endif %}
     </div>
   </div>
 </div>
@@ -472,13 +444,7 @@
     <div class="empty">
       <h2>No data for {{ digest.date }}</h2>
       {% if selected_date == today %}
-      <p style="margin-top:1rem">
-        <button class="refresh-btn" style="margin:0 auto" onclick="doRefresh()">
-          <span class="icon">&#8635;</span>
-          <span class="spin">&#8987;</span>
-          Run Collection
-        </button>
-      </p>
+      <p style="margin-top:.75rem;font-size:.85rem;color:var(--muted)">Collection in progress — check back in a few minutes.</p>
       {% else %}
       <p style="margin-top:.75rem;font-size:.85rem">No data for this date.</p>
       {% endif %}
@@ -509,62 +475,11 @@
     setTimeout(() => t.classList.remove('show'), duration);
   }
 
-  const REFRESH_COOLDOWN_MS = 10 * 60 * 1000;
-  const LAST_REFRESH_KEY = 'radar_last_refresh';
-  function getLastRefresh() { return parseInt(localStorage.getItem(LAST_REFRESH_KEY) || '0'); }
-  function setLastRefresh() { localStorage.setItem(LAST_REFRESH_KEY, Date.now()); }
-  function cooldownRemaining() { return Math.max(0, REFRESH_COOLDOWN_MS - (Date.now() - getLastRefresh())); }
-
-  async function doRefresh() {
-    const remaining = cooldownRemaining();
-    if (remaining > 0) {
-      const mins = Math.ceil(remaining / 60000);
-      showToast(`Already refreshed — wait ${mins} more min`);
-      return;
-    }
-    const btns = document.querySelectorAll('.refresh-btn');
-    btns.forEach(b => { b.disabled = true; b.classList.add('loading'); });
-    const bar = document.getElementById('ptr-indicator');
-    bar.classList.add('active');
-    showToast('Collecting...', 60000);
-    try {
-      const res = await fetch('/api/refresh', { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        setLastRefresh();
-        showToast(`Done — ${data.articles_saved} new articles, ${data.clusters} clusters`);
-        setTimeout(() => location.reload(), 1200);
-      } else {
-        showToast('Error: ' + (data.error || 'unknown'));
-        btns.forEach(b => { b.disabled = false; b.classList.remove('loading'); });
-        bar.classList.remove('active');
-      }
-    } catch (e) {
-      showToast('Network error');
-      btns.forEach(b => { b.disabled = false; b.classList.remove('loading'); });
-      bar.classList.remove('active');
-    }
+  // Auto-reload: si on est sur aujourd'hui et qu'il n'y a pas encore de données,
+  // on recharge la page toutes les 2 minutes en attendant que le pipeline tourne.
+  if (today === selected && document.querySelector('.empty')) {
+    setTimeout(() => location.reload(), 2 * 60 * 1000);
   }
-
-  // Pull-to-refresh — touch (mobile)
-  let startY = 0;
-  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
-  document.addEventListener('touchend', e => {
-    const delta = e.changedTouches[0].clientY - startY;
-    if (delta > 80 && window.scrollY === 0 && today === selected) doRefresh();
-  }, { passive: true });
-
-  // Pull-to-refresh — trackpad overscroll
-  let wheelAccum = 0, wheelTimer = null;
-  document.addEventListener('wheel', e => {
-    if (today !== selected) return;
-    if (window.scrollY > 0) { wheelAccum = 0; return; }
-    if (e.deltaY >= 0) { wheelAccum = 0; return; }
-    wheelAccum += Math.abs(e.deltaY);
-    clearTimeout(wheelTimer);
-    wheelTimer = setTimeout(() => { wheelAccum = 0; }, 400);
-    if (wheelAccum > 150) { wheelAccum = 0; doRefresh(); }
-  }, { passive: true });
 </script>
 </body>
 </html>

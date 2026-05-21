@@ -13,7 +13,10 @@ SS_FIELDS = "paperId,title,abstract,publicationDate,year,url,externalIds"
 # Cela donne plus de diversité dans les papers collectés.
 QUERIES = [
     "large language model",
-    "transformer deep learning",
+    "deep learning",
+    "multi-agent",
+    "transformer",
+    "foundation model",
     "reinforcement learning agent",
     "multimodal AI vision",
 ]
