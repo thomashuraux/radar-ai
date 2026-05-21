@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, date
 from typing import Optional
@@ -9,14 +10,20 @@ from typing import Optional
 DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "radar.db"
 
 
-def get_conn() -> sqlite3.Connection:
-    # resolve() garantit un chemin absolu même si __file__ est relatif (ex: launchd)
+@contextmanager
+def get_conn():
+    """Context manager qui ouvre, commit/rollback ET ferme toujours la connexion."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    # row_factory = sqlite3.Row : les résultats sont accessibles par nom de colonne
-    # (ex: row["title"]) plutôt que par index numérique (row[2])
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db():
