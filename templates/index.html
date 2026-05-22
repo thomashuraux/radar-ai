@@ -292,6 +292,25 @@
     .sb-reddit  { color: #B45309; border-color: #B45309; }
     .sb-hn      { color: #C2410C; border-color: #C2410C; }
 
+    /* ── All articles toggle ── */
+    .toggle-articles {
+      margin-top: .75rem;
+      font-size: .68rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      display: inline-block;
+      opacity: .55;
+      transition: opacity .15s;
+    }
+    .toggle-articles:hover { opacity: 1; }
+    .all-articles { display: none; margin-top: .5rem; }
+    .all-articles.open { display: block; }
+    .all-articles .source-row { opacity: .75; }
+
     /* ── Empty state ── */
     .empty {
       text-align: center;
@@ -438,6 +457,29 @@
         </div>
         {% endfor %}
         {% endif %}
+
+        {% if topic.articles and topic.articles | length > 3 %}
+        <span class="toggle-articles" onclick="toggleArticles(this)">
+          ↓ {{ topic.articles | length }} articles
+        </span>
+        <div class="all-articles">
+          {% for a in topic.articles %}
+          <div class="source-row">
+            {% if a.source == "arxiv" %}<span class="source-badge sb-arxiv">arXiv</span>
+            {% elif a.source == "semanticscholar" %}<span class="source-badge sb-s2">S2</span>
+            {% elif a.source in ["reddit_ml","reddit_localllama","reddit_artificial"] %}<span class="source-badge sb-reddit">Reddit</span>
+            {% elif a.source == "hackernews" %}<span class="source-badge sb-hn">HN</span>
+            {% elif a.source %}<span class="source-badge sb-news">{{ a.source | replace("_ai","") | replace("_"," ") }}</span>
+            {% endif %}
+            {% if a.url %}
+            <a class="source-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+            {% else %}
+            <div class="source-title">{{ a.title }}</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
@@ -454,6 +496,7 @@
 
   <footer>
     AI Radar &mdash; open source &mdash; free
+    &mdash; <a href="/api/digest{% if selected_date != today %}?d={{ selected_date }}{% endif %}" target="_blank" style="color:var(--muted);text-decoration:none;opacity:.5" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">raw json</a>
   </footer>
 </div>
 
@@ -474,6 +517,13 @@
     t.textContent = msg;
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), duration);
+  }
+
+  function toggleArticles(el) {
+    const box = el.nextElementSibling;
+    const open = box.classList.toggle('open');
+    const n = box.querySelectorAll('.source-row').length;
+    el.textContent = open ? `↑ fermer` : `↓ ${n} articles`;
   }
 
   // Auto-reload: si on est sur aujourd'hui et qu'il n'y a pas encore de données,
