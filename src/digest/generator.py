@@ -168,6 +168,7 @@ def generate_digest_html(clusters: list[dict], target_date: str, top_n: int = 5)
             "keywords": keywords,
             "summary": summary,
             "top_titles": normalized,
+            "articles": cluster.get("articles", []),
         })
 
     return {
