@@ -92,7 +92,7 @@ def collect_semanticscholar(max_per_query: int = 25) -> list[dict]:
                 "title": title,
                 "content": abstract,
                 "url": _paper_url(paper),
-                "date": pub_date,
+                "date": today,  # date de collecte, pas de publication (les papiers ont des dates anciennes)
                 "embedding": None,
                 "cluster_id": -1,
             })

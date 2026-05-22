@@ -52,7 +52,7 @@ def cmd_collect(target_date: str, verbose: bool = False):
 
     saved = 0
     for a in all_articles:
-        if not db.article_exists(a["id"]):
+        if not db.article_exists(a["id"], a["date"]):
             db.upsert_article(a)
             saved += 1
 

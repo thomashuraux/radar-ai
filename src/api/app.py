@@ -39,7 +39,7 @@ def _pipeline(today: str):
 
     saved = 0
     for a in articles:
-        if not db.article_exists(a["id"]):
+        if not db.article_exists(a["id"], a["date"]):
             db.upsert_article(a)
             saved += 1
 
@@ -155,7 +155,7 @@ def refresh():
 
         saved = 0
         for a in articles:
-            if not db.article_exists(a["id"]):
+            if not db.article_exists(a["id"], a["date"]):
                 db.upsert_article(a)
                 saved += 1
 

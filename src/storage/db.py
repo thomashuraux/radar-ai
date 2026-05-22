@@ -172,10 +172,11 @@ def count_articles_by_source(target_date: str) -> dict:
     return {r["source"]: r["n"] for r in rows}
 
 
-def article_exists(article_id: str) -> bool:
-    # Vérification rapide avant upsert pour compter les "vrais" nouveaux articles
+def article_exists(article_id: str, target_date: str) -> bool:
+    # Vérifie id + date : permet au même article de réapparaître d'un jour sur l'autre
+    # (ex: papier arXiv collecté hier qui doit aussi figurer dans le digest d'aujourd'hui)
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT 1 FROM articles WHERE id = ?", (article_id,)
+            "SELECT 1 FROM articles WHERE id = ? AND date = ?", (article_id, target_date)
         ).fetchone()
     return row is not None
