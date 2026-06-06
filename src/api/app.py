@@ -132,7 +132,8 @@ def index(request: Request, d: str = None):
     if clusters:
         articles_by_cluster = {}
         for a in all_articles:
-            articles_by_cluster.setdefault(a["cluster_id"], []).append(a)
+            if a["source"] not in NEWSLETTER_SOURCES:
+                articles_by_cluster.setdefault(a["cluster_id"], []).append(a)
 
         full_clusters = []
         for c in clusters:

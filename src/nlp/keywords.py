@@ -24,8 +24,8 @@ _AI_STOPWORDS = {
     # Termes omniprésents dans les articles IA — aucune valeur discriminante
     # pour nommer un cluster spécifique (apparaissent dans ~100% des articles)
     "large", "language", "llm", "llms", "ai", "artificial", "intelligence",
-    "neural", "deep", "learning", "network", "networks", "agent", "agents",
-    "system", "systems", "training", "trained",
+    "neural", "deep", "learning", "network", "networks",
+    "training", "trained",
     "benchmark", "performance", "state", "art", "approach", "method",
     "results", "result", "experiments", "evaluation", "dataset", "task", "tasks",
     "based", "proposed", "paper", "show", "shows", "achieve", "achieves",
@@ -37,6 +37,16 @@ _AI_STOPWORDS = {
     "enable", "enables", "enabled", "allow", "allows", "allowed",
     "generate", "generated", "generation", "response", "responses",
     "query", "queries", "context", "information", "knowledge",
+    # Noms propres politiques — jamais pertinents comme nom de trend IA
+    "trump", "krishnan", "sriram", "biden", "administration",
+    # Termes vagues qui polluent les noms de clusters
+    "meet", "world", "domains", "domain", "significant", "diverse",
+    "comprehensive", "addresses", "addressing", "increasingly", "ensuring",
+    "shaping", "understanding", "survey", "review", "overview", "introduction",
+    "early", "long", "role", "opinion", "playing", "image", "images",
+    "thought", "thoughts", "fun", "coding", "code", "design", "development",
+    "complex", "powerful", "efficient", "effective", "accurate", "robust",
+    "challenging", "difficult", "simple", "flexible", "scalable",
 }
 
 
