@@ -37,7 +37,12 @@ def cmd_collect(target_date: str, verbose: bool = False):
     ss = collect_semanticscholar()
     print(f"[collect] Semantic Scholar: {len(ss)} articles")
 
-    all_articles = rss + arxiv + ss
+    from src.collector.huggingface_collector import collect_huggingface
+    print(f"[collect] Fetching HuggingFace Daily Papers...")
+    hf = collect_huggingface()
+    print(f"[collect] HuggingFace: {len(hf)} articles")
+
+    all_articles = rss + arxiv + ss + hf
     print(f"[collect] Total before dedup: {len(all_articles)}")
 
     all_articles = [clean_article(a) for a in all_articles]
@@ -67,9 +72,15 @@ def cmd_analyze(target_date: str):
     from src.nlp.clusterer import cluster_articles
     from src.trends.detector import build_clusters
 
+    # Les newsletters (digest quotidiens, éditoriaux) ne doivent pas entrer
+    # dans le clustering : leur contenu est un résumé multi-sujets qui crée
+    # des clusters incohérents. Elles sont affichées séparément dans l'UI.
+    NEWSLETTER_SOURCES = {"latent_space", "import_ai", "tldr_ai"}
+
     db.init_db()
-    articles = db.get_articles_by_date(target_date)
-    print(f"[analyze] {len(articles)} articles for {target_date}")
+    all_articles = db.get_articles_by_date(target_date)
+    articles = [a for a in all_articles if a["source"] not in NEWSLETTER_SOURCES]
+    print(f"[analyze] {len(articles)} articles for {target_date} ({len(all_articles) - len(articles)} newsletters excluded)")
 
     if not articles:
         print("[analyze] No articles found. Run 'collect' first.")

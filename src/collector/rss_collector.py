@@ -22,6 +22,10 @@ RSS_FEEDS = {
     "reddit_artificial": "https://www.reddit.com/r/artificial/.rss",
     # HN filtré par mots-clés AI/LLM via hnrss.org (service tiers gratuit)
     "hackernews":      "https://hnrss.org/frontpage?q=AI+LLM+machine+learning",
+    # Newsletters techniques
+    "latent_space":    "https://www.latent.space/feed",
+    "import_ai":       "https://jack-clark.net/feed/",
+    "tldr_ai":         "https://tldr.tech/api/rss/ai",
 }
 
 # Reddit représente 3 feeds × 50 = 150 articles potentiels, ce qui noie
@@ -30,6 +34,7 @@ _SOURCE_LIMITS: dict[str, int] = {
     "reddit_ml":         15,
     "reddit_localllama": 15,
     "reddit_artificial": 10,
+    "tldr_ai":           20,  # résumés très courts, on prend les 20 plus récents
 }
 
 

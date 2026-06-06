@@ -286,11 +286,70 @@
       flex-shrink: 0;
       border: 1px solid;
     }
-    .sb-arxiv   { color: #6B21A8; border-color: #6B21A8; }
-    .sb-s2      { color: #1D4ED8; border-color: #1D4ED8; }
-    .sb-news    { color: #166534; border-color: #166534; }
-    .sb-reddit  { color: #B45309; border-color: #B45309; }
-    .sb-hn      { color: #C2410C; border-color: #C2410C; }
+    .sb-arxiv      { color: #6B21A8; border-color: #6B21A8; }
+    .sb-s2         { color: #1D4ED8; border-color: #1D4ED8; }
+    .sb-news       { color: #166534; border-color: #166534; }
+    .sb-reddit     { color: #B45309; border-color: #B45309; }
+    .sb-hn         { color: #C2410C; border-color: #C2410C; }
+    .sb-hf         { color: #FF6F00; border-color: #FF6F00; }
+    .sb-newsletter { color: #0D7A5F; border-color: #0D7A5F; }
+
+    /* ── Newsletter box ── */
+    .newsletter-box {
+      border-top: 2px solid var(--ink);
+      border-left: 3px solid var(--accent);
+      padding: 1.25rem 1.25rem 0.5rem;
+      margin: 2.5rem 0;
+      background: #fdfbf8;
+    }
+    .newsletter-box-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      padding-bottom: .75rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .newsletter-box-title {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--ink);
+      flex: 1;
+    }
+    .newsletter-box-label {
+      font-size: .63rem;
+      font-weight: 700;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .newsletter-item {
+      padding: .75rem 0;
+      border-bottom: 1px solid #EDE9E2;
+    }
+    .newsletter-item:last-child { border-bottom: none; }
+    .newsletter-item-meta {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      margin-bottom: .35rem;
+    }
+    .newsletter-title {
+      display: block;
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--ink);
+      text-decoration: none;
+      line-height: 1.4;
+      margin-bottom: .3rem;
+    }
+    .newsletter-title:hover { text-decoration: underline; color: var(--accent); }
+    .newsletter-excerpt {
+      font-size: .78rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
 
     /* ── All articles toggle ── */
     .toggle-articles {
@@ -408,6 +467,38 @@
   </div>
   {% endif %}
 
+  {% if newsletter_articles %}
+  <div class="newsletter-box">
+    <div class="newsletter-box-header">
+      <div>
+        <div class="newsletter-box-label">Newsletters &amp; Daily Digests</div>
+        <div class="newsletter-box-title">What the curators read today</div>
+      </div>
+      <span class="badge badge-count">{{ newsletter_articles | length }}</span>
+    </div>
+    {% for a in newsletter_articles %}
+    <div class="newsletter-item">
+      <div class="newsletter-item-meta">
+        {% if a.source == "latent_space" %}<span class="source-badge sb-newsletter">Latent Space</span>
+        {% elif a.source == "import_ai" %}<span class="source-badge sb-newsletter">Import AI</span>
+        {% elif a.source == "tldr_ai" %}<span class="source-badge sb-newsletter">TLDR AI</span>
+        {% else %}<span class="source-badge sb-newsletter">{{ a.source | replace("_"," ") }}</span>
+        {% endif %}
+        <span style="font-size:.65rem;color:var(--muted);letter-spacing:.05em">{{ a.date }}</span>
+      </div>
+      {% if a.url %}
+      <a class="newsletter-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+      {% else %}
+      <div class="newsletter-title">{{ a.title }}</div>
+      {% endif %}
+      {% if a.content %}
+      <p class="newsletter-excerpt">{{ a.content[:200] }}{% if a.content | length > 200 %}…{% endif %}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if digest.topics %}
     <div class="section-label">Today's Trends</div>
     {% for topic in digest.topics %}
@@ -447,6 +538,7 @@
           {% elif src.source == "semanticscholar" %}<span class="source-badge sb-s2">S2</span>
           {% elif src.source in ["reddit_ml","reddit_localllama","reddit_artificial"] %}<span class="source-badge sb-reddit">Reddit</span>
           {% elif src.source == "hackernews" %}<span class="source-badge sb-hn">HN</span>
+          {% elif src.source == "huggingface_papers" %}<span class="source-badge sb-hf">HF Papers</span>
           {% elif src.source %}<span class="source-badge sb-news">{{ src.source | replace("_ai","") | replace("_"," ") }}</span>
           {% endif %}
           {% if src.url %}
@@ -469,6 +561,7 @@
             {% elif a.source == "semanticscholar" %}<span class="source-badge sb-s2">S2</span>
             {% elif a.source in ["reddit_ml","reddit_localllama","reddit_artificial"] %}<span class="source-badge sb-reddit">Reddit</span>
             {% elif a.source == "hackernews" %}<span class="source-badge sb-hn">HN</span>
+            {% elif a.source == "huggingface_papers" %}<span class="source-badge sb-hf">HF Papers</span>
             {% elif a.source %}<span class="source-badge sb-news">{{ a.source | replace("_ai","") | replace("_"," ") }}</span>
             {% endif %}
             {% if a.url %}

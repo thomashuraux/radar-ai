@@ -39,16 +39,14 @@ def cluster_articles(articles: list[dict], embeddings: np.ndarray) -> list[dict]
 
     if HAS_HDBSCAN and len(articles) >= 10:
         clusterer = hdbscan.HDBSCAN(
-            # Un cluster doit contenir au moins N/20 articles.
-            # Ex : 100 articles → min 5 par cluster. Évite les micro-clusters d'1 article.
-            min_cluster_size=max(2, len(articles) // 20),
-            # min_samples=1 : même les points peu denses peuvent initier un cluster.
-            # Valeur plus haute = clusters plus "purs" mais plus de bruit.
+            # Un cluster doit contenir au moins N/15 articles (légèrement plus strict
+            # que N/20) pour éviter les micro-clusters trop spécifiques.
+            min_cluster_size=max(3, len(articles) // 15),
             min_samples=1,
             metric="euclidean",
-            # epsilon : deux clusters distants de moins de 0.1 sont fusionnés.
-            # Évite l'éclatement excessif sur des sujets proches (ex: GPT-4 vs GPT-5).
-            cluster_selection_epsilon=0.1,
+            # epsilon=0.0 : pas de fusion forcée entre clusters distincts.
+            # Valeur 0.1 fusionnait des sujets trop éloignés → clusters incohérents.
+            cluster_selection_epsilon=0.0,
         )
         labels = clusterer.fit_predict(embs)
 

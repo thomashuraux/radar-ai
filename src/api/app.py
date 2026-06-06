@@ -22,17 +22,51 @@ def render_template(name: str, context: dict) -> str:
     return tmpl.render(**context)
 
 
+NEWSLETTER_SOURCES = {"latent_space", "import_ai", "tldr_ai"}
+
+
+def _latest_newsletter_articles(target_date: str) -> list[dict]:
+    """
+    Retourne le dernier article disponible par source newsletter sur les 7 jours
+    précédant target_date. Les newsletters hebdomadaires (Import AI) ou décalées
+    d'un jour (TLDR AI) n'ont pas d'article daté exactement aujourd'hui.
+    """
+    from datetime import date, timedelta
+    cutoff = (date.fromisoformat(target_date) - timedelta(days=7)).isoformat()
+
+    import sqlite3
+    from pathlib import Path
+    db_path = Path(__file__).parent.parent.parent / "data" / "radar.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+
+    results = []
+    for source in NEWSLETTER_SOURCES:
+        rows = conn.execute(
+            "SELECT * FROM articles WHERE source = ? AND date <= ? AND date >= ? "
+            "ORDER BY date DESC LIMIT 1",
+            (source, target_date, cutoff),
+        ).fetchall()
+        results.extend([dict(r) for r in rows])
+
+    conn.close()
+    # Tri par source puis date décroissante pour un affichage cohérent
+    results.sort(key=lambda a: (a["source"], a["date"]), reverse=True)
+    return results
+
+
 def _pipeline(today: str):
     from src.collector.rss_collector import collect_rss
     from src.collector.arxiv_collector import collect_arxiv
     from src.collector.semanticscholar_collector import collect_semanticscholar
+    from src.collector.huggingface_collector import collect_huggingface
     from src.processor.cleaner import clean_article, is_valid_article
     from src.processor.deduplicator import deduplicate
     from src.nlp.embedder import embed_articles, get_embeddings_matrix
     from src.nlp.clusterer import cluster_articles
     from src.trends.detector import build_clusters
 
-    articles = collect_rss() + collect_arxiv() + collect_semanticscholar()
+    articles = collect_rss() + collect_arxiv() + collect_semanticscholar() + collect_huggingface()
     articles = [clean_article(a) for a in articles]
     articles = [a for a in articles if a["title"] and is_valid_article(a)]
     articles = deduplicate(articles)
@@ -43,7 +77,9 @@ def _pipeline(today: str):
             db.upsert_article(a)
             saved += 1
 
-    today_articles = db.get_articles_by_date(today)
+    all_today = db.get_articles_by_date(today)
+    # Newsletters exclues du clustering : digest multi-sujets → clusters incohérents.
+    today_articles = [a for a in all_today if a["source"] not in NEWSLETTER_SOURCES]
     if not today_articles:
         print("[auto-refresh] No articles collected for today.")
         return
@@ -88,14 +124,19 @@ def index(request: Request, d: str = None):
     total_articles = db.count_articles_by_date(target_date)
     source_counts = db.count_articles_by_source(target_date)
 
+    all_articles = db.get_articles_by_date(target_date)
+    # Les newsletters paraissent souvent la veille ou de façon hebdomadaire.
+    # On prend le dernier article disponible par source sur les 7 derniers jours.
+    newsletter_articles = _latest_newsletter_articles(target_date)
+
     if clusters:
+        articles_by_cluster = {}
+        for a in all_articles:
+            articles_by_cluster.setdefault(a["cluster_id"], []).append(a)
+
         full_clusters = []
         for c in clusters:
-            articles = [
-                a for a in db.get_articles_by_date(target_date)
-                if a["cluster_id"] == c["id"]
-            ]
-            c["articles"] = articles
+            c["articles"] = articles_by_cluster.get(c["id"], [])
             c.setdefault("yesterday_count", 0)
             full_clusters.append(c)
 
@@ -108,6 +149,7 @@ def index(request: Request, d: str = None):
         "selected_date": target_date,
         "today": date.today().isoformat(),
         "source_counts": source_counts,
+        "newsletter_articles": newsletter_articles,
     })
     return HTMLResponse(html)
 
@@ -148,7 +190,8 @@ def refresh():
         from src.trends.detector import build_clusters
 
         from src.collector.semanticscholar_collector import collect_semanticscholar
-        articles = collect_rss() + collect_arxiv() + collect_semanticscholar()
+        from src.collector.huggingface_collector import collect_huggingface
+        articles = collect_rss() + collect_arxiv() + collect_semanticscholar() + collect_huggingface()
         articles = [clean_article(a) for a in articles]
         articles = [a for a in articles if a["title"] and is_valid_article(a)]
         articles = deduplicate(articles)
