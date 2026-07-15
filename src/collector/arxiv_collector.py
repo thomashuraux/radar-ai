@@ -54,7 +54,6 @@ def collect_arxiv(max_results: int = 50) -> list[dict]:
     for entry in root.findall("atom:entry", NS):
         title_el = entry.find("atom:title", NS)
         summary_el = entry.find("atom:summary", NS)
-        published_el = entry.find("atom:published", NS)
         id_el = entry.find("atom:id", NS)
         # On cherche le lien "alternate" = page HTML du paper (pas le PDF)
         link_el = entry.find("atom:link[@rel='alternate']", NS)
@@ -64,10 +63,12 @@ def collect_arxiv(max_results: int = 50) -> list[dict]:
         arxiv_id = (id_el.text or "").strip()
         link = (link_el.attrib.get("href", "") if link_el is not None else arxiv_id)
 
-        # On tronque à 10 caractères pour obtenir YYYY-MM-DD depuis "2024-01-15T..."
-        published = (published_el.text or "")[:10] if published_el is not None else ""
-        if not published:
-            published = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # On utilise la date d'aujourd'hui (UTC) plutôt que la date de soumission
+        # arXiv réelle (<published>) : le cycle d'annonce d'arXiv a environ un jour
+        # de décalage, donc utiliser la date de soumission ferait apparaître la
+        # plupart des papers datés d'hier (ou avant), et ils disparaîtraient
+        # de la vue "aujourd'hui".
+        published = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         if not title:
             continue
