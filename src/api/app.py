@@ -24,6 +24,9 @@ def render_template(name: str, context: dict) -> str:
 
 NEWSLETTER_SOURCES = {"latent_space", "import_ai", "tldr_ai"}
 
+# Empêche deux exécutions concurrentes du pipeline (thread horaire vs /api/refresh).
+_pipeline_lock = threading.Lock()
+
 
 def _latest_newsletter_articles(target_date: str) -> list[dict]:
     """
@@ -55,47 +58,55 @@ def _latest_newsletter_articles(target_date: str) -> list[dict]:
     return results
 
 
-def _pipeline(today: str):
-    from src.collector.rss_collector import collect_rss
-    from src.collector.arxiv_collector import collect_arxiv
-    from src.collector.semanticscholar_collector import collect_semanticscholar
-    from src.collector.huggingface_collector import collect_huggingface
-    from src.processor.cleaner import clean_article, is_valid_article
-    from src.processor.deduplicator import deduplicate
-    from src.nlp.embedder import embed_articles, get_embeddings_matrix
-    from src.nlp.clusterer import cluster_articles
-    from src.trends.detector import build_clusters
+def _pipeline(today: str) -> dict:
+    if not _pipeline_lock.acquire(blocking=False):
+        print("[pipeline] Already running, skipping this trigger.")
+        return {"ok": False, "error": "Pipeline already running"}
 
-    articles = collect_rss() + collect_arxiv() + collect_semanticscholar() + collect_huggingface()
-    articles = [clean_article(a) for a in articles]
-    articles = [a for a in articles if a["title"] and is_valid_article(a)]
-    articles = deduplicate(articles)
+    try:
+        from src.collector.rss_collector import collect_rss
+        from src.collector.arxiv_collector import collect_arxiv
+        from src.collector.semanticscholar_collector import collect_semanticscholar
+        from src.collector.huggingface_collector import collect_huggingface
+        from src.processor.cleaner import clean_article, is_valid_article
+        from src.processor.deduplicator import deduplicate
+        from src.nlp.embedder import embed_articles, get_embeddings_matrix
+        from src.nlp.clusterer import cluster_articles
+        from src.trends.detector import build_clusters
 
-    saved = 0
-    for a in articles:
-        if not db.article_exists(a["id"], a["date"]):
+        articles = collect_rss() + collect_arxiv() + collect_semanticscholar() + collect_huggingface()
+        articles = [clean_article(a) for a in articles]
+        articles = [a for a in articles if a["title"] and is_valid_article(a)]
+        articles = deduplicate(articles)
+
+        saved = 0
+        for a in articles:
+            if not db.article_exists(a["id"], a["date"]):
+                db.upsert_article(a)
+                saved += 1
+
+        all_today = db.get_articles_by_date(today)
+        # Newsletters exclues du clustering : digest multi-sujets → clusters incohérents.
+        today_articles = [a for a in all_today if a["source"] not in NEWSLETTER_SOURCES]
+        if not today_articles:
+            print("[auto-refresh] No articles collected for today.")
+            return {"ok": False, "error": "No articles collected for today"}
+
+        today_articles = embed_articles(today_articles)
+        for a in today_articles:
             db.upsert_article(a)
-            saved += 1
 
-    all_today = db.get_articles_by_date(today)
-    # Newsletters exclues du clustering : digest multi-sujets → clusters incohérents.
-    today_articles = [a for a in all_today if a["source"] not in NEWSLETTER_SOURCES]
-    if not today_articles:
-        print("[auto-refresh] No articles collected for today.")
-        return
+        embeddings = get_embeddings_matrix(today_articles)
+        today_articles = cluster_articles(today_articles, embeddings)
+        for a in today_articles:
+            db.update_article_cluster(a["id"], a["cluster_id"])
 
-    today_articles = embed_articles(today_articles)
-    for a in today_articles:
-        db.upsert_article(a)
-
-    embeddings = get_embeddings_matrix(today_articles)
-    today_articles = cluster_articles(today_articles, embeddings)
-    for a in today_articles:
-        db.update_article_cluster(a["id"], a["cluster_id"])
-
-    clusters = build_clusters(today_articles, today)
-    db.save_clusters(clusters, today)
-    print(f"[auto-refresh] Done — {saved} articles saved, {len(clusters)} clusters.")
+        clusters = build_clusters(today_articles, today)
+        db.save_clusters(clusters, today)
+        print(f"[auto-refresh] Done — {saved} articles saved, {len(clusters)} clusters.")
+        return {"ok": True, "articles_saved": saved, "clusters": len(clusters)}
+    finally:
+        _pipeline_lock.release()
 
 
 def _daily_refresh_loop():
@@ -172,7 +183,7 @@ def api_digest(d: str = None):
 
     for c in clusters:
         c["articles"] = articles_by_cluster.get(c["id"], [])
-        c["yesterday_count"] = 0
+        c.setdefault("yesterday_count", 0)
         full_clusters.append(c)
 
     return generate_digest_html(full_clusters, target_date)
@@ -182,44 +193,8 @@ def api_digest(d: str = None):
 def refresh():
     today = date.today().isoformat()
     try:
-        from src.collector.rss_collector import collect_rss
-        from src.collector.arxiv_collector import collect_arxiv
-        from src.processor.cleaner import clean_article, is_valid_article
-        from src.processor.deduplicator import deduplicate
-        from src.nlp.embedder import embed_articles, get_embeddings_matrix
-        from src.nlp.clusterer import cluster_articles
-        from src.trends.detector import build_clusters
-
-        from src.collector.semanticscholar_collector import collect_semanticscholar
-        from src.collector.huggingface_collector import collect_huggingface
-        articles = collect_rss() + collect_arxiv() + collect_semanticscholar() + collect_huggingface()
-        articles = [clean_article(a) for a in articles]
-        articles = [a for a in articles if a["title"] and is_valid_article(a)]
-        articles = deduplicate(articles)
-
-        saved = 0
-        for a in articles:
-            if not db.article_exists(a["id"], a["date"]):
-                db.upsert_article(a)
-                saved += 1
-
-        today_articles = db.get_articles_by_date(today)
-        if not today_articles:
-            return JSONResponse({"ok": False, "error": "No articles for today"})
-
-        today_articles = embed_articles(today_articles)
-        for a in today_articles:
-            db.upsert_article(a)
-
-        embeddings = get_embeddings_matrix(today_articles)
-        today_articles = cluster_articles(today_articles, embeddings)
-        for a in today_articles:
-            db.update_article_cluster(a["id"], a["cluster_id"])
-
-        clusters = build_clusters(today_articles, today)
-        db.save_clusters(clusters, today)
-
-        return {"ok": True, "articles_saved": saved, "clusters": len(clusters)}
+        result = _pipeline(today)
+        return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
