@@ -135,7 +135,7 @@ def cmd_digest(target_date: str):
     full_clusters = []
     for c in clusters:
         c["articles"] = by_cluster.get(c["id"], [])
-        c["yesterday_count"] = 0
+        c.setdefault("yesterday_count", 0)
         full_clusters.append(c)
 
     print(generate_digest(full_clusters, target_date))
