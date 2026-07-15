@@ -397,38 +397,9 @@
       border-top: 1px solid var(--border-light);
     }
 
-    /* ── Progress bar + Toast ── */
-    #ptr-indicator {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 2px;
-      background: var(--accent);
-      transform: scaleX(0);
-      transform-origin: left;
-      transition: transform .3s;
-      z-index: 100;
-    }
-    #ptr-indicator.active { transform: scaleX(1); }
-    #toast {
-      position: fixed;
-      bottom: 1.5rem; left: 50%;
-      transform: translateX(-50%) translateY(4rem);
-      background: var(--ink);
-      color: #fff;
-      padding: .55rem 1.25rem;
-      font-size: .78rem;
-      font-weight: 600;
-      letter-spacing: .04em;
-      transition: transform .25s;
-      z-index: 200;
-      white-space: nowrap;
-    }
-    #toast.show { transform: translateX(-50%) translateY(0); }
   </style>
 </head>
 <body>
-<div id="ptr-indicator"></div>
-<div id="toast"></div>
 
 <div class="masthead">
   <div class="masthead-inner">
@@ -605,18 +576,11 @@
     location.href = "/?d=" + iso;
   }
 
-  function showToast(msg, duration = 3000) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), duration);
-  }
-
   function toggleArticles(el) {
     const box = el.nextElementSibling;
     const open = box.classList.toggle('open');
     const n = box.querySelectorAll('.source-row').length;
-    el.textContent = open ? `↑ fermer` : `↓ ${n} articles`;
+    el.textContent = open ? `↑ close` : `↓ ${n} articles`;
   }
 
   // Auto-reload: si on est sur aujourd'hui et qu'il n'y a pas encore de données,
