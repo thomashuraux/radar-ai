@@ -31,63 +31,43 @@ def _centroid_title(arts: list[dict]) -> str:
 
 
 def _match_yesterday_counts(
-    today_clusters: dict[int, list[dict]],
-    yesterday_articles: list[dict],
+    today_keywords: dict[int, list[str]],
+    yesterday_clusters: list[dict],
 ) -> dict[int, int]:
     """
-    Mappe chaque cluster d'aujourd'hui vers son équivalent d'hier par similarité cosinus.
+    Mappe chaque cluster d'aujourd'hui vers son équivalent d'hier par recouvrement de mots-clés.
 
     Les cluster_id sont réassignés à zéro chaque jour (KMeans/HDBSCAN repart de zéro),
-    donc comparer les ID directement est faux. On compare les centroïdes à la place :
-    le cluster d'hier le plus proche du cluster d'aujourd'hui est son "ancêtre" thématique.
+    donc comparer les ID directement est faux. Comparer les embeddings ne marche pas non plus :
+    le TF-IDF+SVD est refit indépendamment chaque jour (voir src/nlp/embedder.py), donc les
+    vecteurs d'aujourd'hui et d'hier vivent dans des bases latentes différentes et non alignées —
+    une similarité cosinus entre les deux n'a pas de sens mathématique. On compare à la place les
+    ensembles de mots-clés persistés, qui sont indépendants de tout espace vectoriel.
 
-    Un seuil de 0.5 évite de matcher des clusters sans rapport.
+    Seuil de 0.25 sur le coefficient de chevauchement (overlap / min(len_a, len_b)) : environ
+    "2 mots-clés communs sur 8" suffisent à considérer que c'est le même sujet. Ajustable.
     """
-    yest_by_cid: dict[int, list[dict]] = defaultdict(list)
-    for a in yesterday_articles:
-        cid = a.get("cluster_id", -1)
-        if cid >= 0:
-            yest_by_cid[cid].append(a)
-
-    # Pré-calcul des centroïdes d'hier
-    yest_centroids: list[tuple[np.ndarray, int]] = []
-    for arts in yest_by_cid.values():
-        c = _cluster_centroid(arts)
-        if c is not None:
-            yest_centroids.append((c, len(arts)))
-
-    if not yest_centroids:
-        return {}
-
     result: dict[int, int] = {}
-    for cid, arts in today_clusters.items():
-        today_c = _cluster_centroid(arts)
-        if today_c is None:
+    for cid, keywords in today_keywords.items():
+        today_set = set(keywords)
+        if not today_set:
             result[cid] = 0
             continue
 
-        today_norm = np.linalg.norm(today_c)
-        if today_norm == 0:
-            result[cid] = 0
-            continue
-
-        best_sim = 0.0
+        best_overlap = 0.0
         best_count = 0
-        for yest_c, count in yest_centroids:
-            # Les embeddings peuvent avoir des dimensions différentes si le corpus
-            # d'hier était plus petit (SVD tronqué à min(128, n-1)). On tronque au minimum.
-            dim = min(len(today_c), len(yest_c))
-            tc, yc = today_c[:dim], yest_c[:dim]
-            yest_norm = np.linalg.norm(yc)
-            today_norm_d = np.linalg.norm(tc)
-            if yest_norm == 0 or today_norm_d == 0:
+        for yc in yesterday_clusters:
+            yest_set = set(yc.get("keywords", []))
+            if not yest_set:
                 continue
-            sim = float(np.dot(tc, yc) / (today_norm_d * yest_norm))
-            if sim > best_sim:
-                best_sim = sim
-                best_count = count
+            # Coefficient de chevauchement : robuste à l'asymétrie de longueur des
+            # listes de mots-clés entre aujourd'hui et hier.
+            overlap = len(today_set & yest_set) / min(len(today_set), len(yest_set))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_count = yc.get("article_count", 0)
 
-        result[cid] = best_count if best_sim >= 0.5 else 0
+        result[cid] = best_count if best_overlap >= 0.25 else 0
 
     return result
 
@@ -109,7 +89,7 @@ def compute_trend_score(count_today: int, count_yesterday: int) -> float:
 
 def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
     yesterday = (date.fromisoformat(target_date) - timedelta(days=1)).isoformat()
-    yesterday_articles = db.get_articles_by_date(yesterday)
+    yesterday_clusters = db.get_clusters_by_date(yesterday)
 
     cluster_articles: dict[int, list[dict]] = defaultdict(list)
     for a in articles:
@@ -118,22 +98,31 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
             continue
         cluster_articles[cid].append(a)
 
-    # Matching cross-jour par similarité cosinus des centroïdes (les ID ne sont pas stables)
-    yesterday_counts = _match_yesterday_counts(cluster_articles, yesterday_articles)
-
     # Corpus global du jour pour l'IDF : tous les articles, pas seulement ceux du cluster.
     # Permet à TF-IDF de pénaliser "large language model" qui apparaît partout.
     all_texts = [f"{a['title']} {a.get('content', '')[:200]}" for a in articles]
 
-    clusters = []
+    # Mots-clés calculés en premier pour chaque cluster, nécessaires au matching cross-jour
+    today_keywords: dict[int, list[str]] = {}
+    cluster_names: dict[int, str] = {}
     for cid, arts in cluster_articles.items():
         texts = [f"{a['title']} {a.get('content', '')[:200]}" for a in arts]
         keywords = extract_keywords(texts, corpus=all_texts)
+        today_keywords[cid] = keywords
 
         # Mots-clés en priorité : ils sont extraits de TOUS les articles du cluster
         # et représentent le sujet commun. Le titre centroïde est un seul article —
         # il peut être trompeur si le cluster est hétérogène.
-        name = get_cluster_name(keywords) or _centroid_title(arts)
+        cluster_names[cid] = get_cluster_name(keywords) or _centroid_title(arts)
+
+    # Matching cross-jour par recouvrement de mots-clés (les ID et les embeddings
+    # ne sont pas stables/comparables d'un jour à l'autre, cf. _match_yesterday_counts)
+    yesterday_counts = _match_yesterday_counts(today_keywords, yesterday_clusters)
+
+    clusters = []
+    for cid, arts in cluster_articles.items():
+        keywords = today_keywords[cid]
+        name = cluster_names[cid]
 
         count_today = len(arts)
         count_yest = yesterday_counts.get(cid, 0)
