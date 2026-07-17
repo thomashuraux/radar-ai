@@ -9,6 +9,7 @@ Usage:
   python main.py digest           # print today's digest to terminal
   python main.py run              # full pipeline (collect + analyze + digest)
   python main.py serve            # start web UI on http://localhost:8000
+  python main.py inspect          # print cluster cohesion/sources detail for manual review
   python main.py collect --date 2026-04-15   # collect for a specific date
 """
 import sys
@@ -102,7 +103,7 @@ def cmd_analyze(target_date: str):
     all_articles = cluster_articles(all_articles, embeddings)
 
     for a in all_articles:
-        db.update_article_cluster(a["id"], a["cluster_id"])
+        db.update_article_cluster(a["id"], a["cluster_id"], a.get("cluster_fit"))
 
     print("[analyze] Building trend scores...")
     clusters = build_clusters(all_articles, target_date)
@@ -141,6 +142,37 @@ def cmd_digest(target_date: str):
     print(generate_digest(full_clusters, target_date))
 
 
+def cmd_inspect(target_date: str):
+    """Affiche le détail des clusters d'un jour pour juger manuellement de leur cohérence."""
+    from src.storage import db
+
+    db.init_db()
+    clusters = db.get_clusters_by_date(target_date)
+    if not clusters:
+        print(f"No clusters for {target_date}. Run 'analyze' first.")
+        return
+
+    articles_today = db.get_articles_by_date(target_date)
+    by_cluster: dict[int, list] = {}
+    for a in articles_today:
+        by_cluster.setdefault(a["cluster_id"], []).append(a)
+
+    for c in clusters:
+        members = sorted(by_cluster.get(c["id"], []), key=lambda a: (a.get("cluster_fit") is None, a.get("cluster_fit", 0)))
+        flag = " [LOW CONFIDENCE]" if c.get("low_confidence") else ""
+        print(f"{'='*70}")
+        print(f"#{c['id']} {c['name']}{flag}")
+        print(f"  articles={c['article_count']}  sources={c['source_count']} {c.get('sources', [])}")
+        print(f"  cohesion={c.get('cohesion', 0):.4f}  trend_score={c['trend_score']:.2f}  labeling={c.get('labeling_method')}")
+        print(f"  members (worst fit first):")
+        for a in members:
+            fit = a.get("cluster_fit")
+            fit_str = f"{fit:.3f}" if fit is not None else "n/a"
+            print(f"    [{fit_str}] ({a['source']}) {a['title']}")
+    print(f"{'='*70}")
+    print(f"Noise (cluster_id=-1): {len(by_cluster.get(-1, []))} articles")
+
+
 def cmd_serve(host: str = "127.0.0.1", port: int = 8000):
     import uvicorn
     print(f"[serve] Starting AI Radar on http://{host}:{port}")
@@ -149,7 +181,7 @@ def cmd_serve(host: str = "127.0.0.1", port: int = 8000):
 
 def main():
     parser = argparse.ArgumentParser(description="AI Radar")
-    parser.add_argument("command", choices=["collect", "analyze", "digest", "run", "serve"])
+    parser.add_argument("command", choices=["collect", "analyze", "digest", "run", "serve", "inspect"])
     parser.add_argument("--date", default=date.today().isoformat(), help="Target date (YYYY-MM-DD)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -168,6 +200,8 @@ def main():
         cmd_digest(args.date)
     elif args.command == "serve":
         cmd_serve(args.host, args.port)
+    elif args.command == "inspect":
+        cmd_inspect(args.date)
 
 
 if __name__ == "__main__":

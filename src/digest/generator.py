@@ -169,6 +169,9 @@ def generate_digest_html(clusters: list[dict], target_date: str, top_n: int = 5)
             "summary": summary,
             "top_titles": normalized,
             "articles": cluster.get("articles", []),
+            "cohesion": cluster.get("cohesion", 0),
+            "source_count": cluster.get("source_count", 0),
+            "low_confidence": cluster.get("low_confidence", False),
         })
 
     return {

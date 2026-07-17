@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 from src.storage import db
 from src.nlp.keywords import extract_keywords, get_cluster_name
+from src.nlp.clusterer import MIN_CLUSTER_FIT
 
 
 def _cluster_centroid(arts: list[dict]) -> np.ndarray | None:
@@ -119,6 +120,8 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
     # ne sont pas stables/comparables d'un jour à l'autre, cf. _match_yesterday_counts)
     yesterday_counts = _match_yesterday_counts(today_keywords, yesterday_clusters)
 
+    duplicate_sources = db.get_duplicate_sources_by_date(target_date)
+
     clusters = []
     for cid, arts in cluster_articles.items():
         keywords = today_keywords[cid]
@@ -131,6 +134,20 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
         top_arts = sorted(arts, key=lambda x: len(x.get("content", "")), reverse=True)[:3]
         top_titles = [{"title": a["title"], "url": a.get("url", ""), "source": a.get("source", "")} for a in top_arts]
 
+        # Cohésion : similarité moyenne des membres à leur centroïde (cf. clusterer.py).
+        # None pour les articles dont le cluster n'a jamais été "gaté" (cas <5 articles/jour).
+        fits = [a["cluster_fit"] for a in arts if a.get("cluster_fit") is not None]
+        cohesion = round(float(np.mean(fits)), 4) if fits else 0.0
+
+        # Diversité des sources : réunit les sources des articles du cluster ET celles
+        # des doublons fusionnés (exclus du clustering mais toujours une corroboration
+        # réelle — cf. src/processor/deduplicator.py).
+        sources = {a.get("source", "") for a in arts}
+        for a in arts:
+            sources.update(duplicate_sources.get(a["id"], []))
+        sources.discard("")
+        sources = sorted(sources)
+
         clusters.append({
             "id": cid,
             "name": name,
@@ -140,6 +157,10 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
             "trend_score": score,
             "top_titles": top_titles,
             "articles": arts,
+            "cohesion": cohesion,
+            "sources": sources,
+            "source_count": len(sources),
+            "low_confidence": cohesion < MIN_CLUSTER_FIT,
         })
 
     clusters.sort(key=lambda c: -c["trend_score"])
