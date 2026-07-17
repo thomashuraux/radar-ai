@@ -1,9 +1,11 @@
 name: Daily AI Radar
 
 on:
-  schedule:
-    - cron: "0 6 * * *"   # 06:00 UTC every day
-  workflow_dispatch:        # manual trigger
+  # Cron disabled: analyze now requires a locally-running Ollama instance
+  # (nomic-embed-text + llama3.1:8b) that ubuntu-latest runners can't reach.
+  # The local server (main.py serve) already runs the same pipeline hourly
+  # against the real data/radar.db. Kept for manual one-off runs.
+  workflow_dispatch:
 
 jobs:
   radar:

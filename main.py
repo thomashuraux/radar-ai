@@ -72,6 +72,7 @@ def cmd_analyze(target_date: str):
     from src.nlp.embedder import embed_articles, get_embeddings_matrix
     from src.nlp.clusterer import cluster_articles
     from src.trends.detector import build_clusters
+    from src.nlp.ollama_client import OllamaUnavailableError
 
     # Les newsletters (digest quotidiens, éditoriaux) ne doivent pas entrer
     # dans le clustering : leur contenu est un résumé multi-sujets qui crée
@@ -79,7 +80,7 @@ def cmd_analyze(target_date: str):
     NEWSLETTER_SOURCES = {"latent_space", "import_ai", "tldr_ai"}
 
     db.init_db()
-    all_articles = db.get_articles_by_date(target_date)
+    all_articles = db.get_clusterable_articles_by_date(target_date)
     articles = [a for a in all_articles if a["source"] not in NEWSLETTER_SOURCES]
     print(f"[analyze] {len(articles)} articles for {target_date} ({len(all_articles) - len(articles)} newsletters excluded)")
 
@@ -87,11 +88,13 @@ def cmd_analyze(target_date: str):
         print("[analyze] No articles found. Run 'collect' first.")
         return
 
-    # Always re-embed all articles together: TF-IDF SVD is fit on the full
-    # corpus each run, so mixing stored embeddings (different SVD fit) with
-    # new ones produces inhomogeneous shapes.
+    # Always re-embed all articles together in one batch call to Ollama.
     print(f"[analyze] Computing embeddings for {len(articles)} articles...")
-    articles = embed_articles(articles)
+    try:
+        articles = embed_articles(articles)
+    except OllamaUnavailableError as e:
+        print(f"[analyze] Ollama unavailable, aborting run without touching saved clusters: {e}")
+        return
     for a in articles:
         db.upsert_article(a)
     print("[analyze] Embeddings saved.")

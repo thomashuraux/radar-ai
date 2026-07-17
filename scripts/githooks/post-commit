@@ -1,0 +1,6 @@
+#!/bin/sh
+# Restarts the live com.radarai.server launchd service after every commit,
+# so the running server picks up the change without a manual restart step.
+# Best-effort: on a machine without this launchd service (e.g. a fresh
+# checkout), the hook must not block the commit.
+launchctl kickstart -k "gui/$(id -u)/com.radarai.server" 2>/dev/null || true

@@ -5,6 +5,7 @@ from collections import defaultdict
 from src.storage import db
 from src.nlp.keywords import extract_keywords, get_cluster_name
 from src.nlp.clusterer import MIN_CLUSTER_FIT
+from src.nlp import llm_namer, ollama_client
 
 
 def _cluster_centroid(arts: list[dict]) -> np.ndarray | None:
@@ -39,11 +40,10 @@ def _match_yesterday_counts(
     Mappe chaque cluster d'aujourd'hui vers son équivalent d'hier par recouvrement de mots-clés.
 
     Les cluster_id sont réassignés à zéro chaque jour (KMeans/HDBSCAN repart de zéro),
-    donc comparer les ID directement est faux. Comparer les embeddings ne marche pas non plus :
-    le TF-IDF+SVD est refit indépendamment chaque jour (voir src/nlp/embedder.py), donc les
-    vecteurs d'aujourd'hui et d'hier vivent dans des bases latentes différentes et non alignées —
-    une similarité cosinus entre les deux n'a pas de sens mathématique. On compare à la place les
-    ensembles de mots-clés persistés, qui sont indépendants de tout espace vectoriel.
+    donc comparer les ID directement est faux. On compare à la place les ensembles de
+    mots-clés persistés par cluster — pas besoin de comparer des embeddings ici (pas
+    d'accès aux vecteurs bruts d'hier depuis cette fonction), et l'overlap de mots-clés
+    est un signal simple et déjà suffisant pour ce matching approximatif.
 
     Seuil de 0.25 sur le coefficient de chevauchement (overlap / min(len_a, len_b)) : environ
     "2 mots-clés communs sur 8" suffisent à considérer que c'est le même sujet. Ajustable.
@@ -92,6 +92,10 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
     yesterday = (date.fromisoformat(target_date) - timedelta(days=1)).isoformat()
     yesterday_clusters = db.get_clusters_by_date(yesterday)
 
+    # Un seul health check par run (pas par cluster) : évite 15-20 aller-retours
+    # HTTP redondants si Ollama est simplement indisponible ce coup-ci.
+    ollama_up = ollama_client.is_available()
+
     cluster_articles: dict[int, list[dict]] = defaultdict(list)
     for a in articles:
         cid = a.get("cluster_id", -1)
@@ -106,6 +110,7 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
     # Mots-clés calculés en premier pour chaque cluster, nécessaires au matching cross-jour
     today_keywords: dict[int, list[str]] = {}
     cluster_names: dict[int, str] = {}
+    cluster_labeling_method: dict[int, str] = {}
     for cid, arts in cluster_articles.items():
         texts = [f"{a['title']} {a.get('content', '')[:200]}" for a in arts]
         keywords = extract_keywords(texts, corpus=all_texts)
@@ -113,8 +118,12 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
 
         # Mots-clés en priorité : ils sont extraits de TOUS les articles du cluster
         # et représentent le sujet commun. Le titre centroïde est un seul article —
-        # il peut être trompeur si le cluster est hétérogène.
-        cluster_names[cid] = get_cluster_name(keywords) or _centroid_title(arts)
+        # il peut être trompeur si le cluster est hétérogène. Sert de fallback si
+        # le titrage LLM est indisponible ou échoue pour ce cluster.
+        fallback_name = get_cluster_name(keywords) or _centroid_title(arts)
+        name, method = llm_namer.generate_cluster_title(arts, fallback_name, ollama_up)
+        cluster_names[cid] = name
+        cluster_labeling_method[cid] = method
 
     # Matching cross-jour par recouvrement de mots-clés (les ID et les embeddings
     # ne sont pas stables/comparables d'un jour à l'autre, cf. _match_yesterday_counts)
@@ -161,6 +170,7 @@ def build_clusters(articles: list[dict], target_date: str) -> list[dict]:
             "sources": sources,
             "source_count": len(sources),
             "low_confidence": cohesion < MIN_CLUSTER_FIT,
+            "labeling_method": cluster_labeling_method[cid],
         })
 
     clusters.sort(key=lambda c: -c["trend_score"])

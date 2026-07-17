@@ -1,7 +1,8 @@
+import subprocess
 import sys
 import threading
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from src.storage import db
@@ -11,6 +12,17 @@ ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 app = FastAPI(title="AI Radar")
+
+_STARTED_AT = datetime.now(timezone.utc).isoformat()
+
+try:
+    # Identifie le commit chargé par CE process — comparer à `git log -1` permet
+    # de vérifier qu'un déploiement a bien été pris en compte (cf. post-commit hook).
+    _GIT_SHA = subprocess.check_output(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL
+    ).decode().strip()
+except Exception:
+    _GIT_SHA = None
 
 TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
 
@@ -73,6 +85,7 @@ def _pipeline(today: str) -> dict:
         from src.nlp.embedder import embed_articles, get_embeddings_matrix
         from src.nlp.clusterer import cluster_articles
         from src.trends.detector import build_clusters
+        from src.nlp.ollama_client import OllamaUnavailableError
 
         articles = collect_rss() + collect_arxiv() + collect_semanticscholar() + collect_huggingface()
         articles = [clean_article(a) for a in articles]
@@ -85,14 +98,18 @@ def _pipeline(today: str) -> dict:
                 db.upsert_article(a)
                 saved += 1
 
-        all_today = db.get_articles_by_date(today)
+        all_today = db.get_clusterable_articles_by_date(today)
         # Newsletters exclues du clustering : digest multi-sujets → clusters incohérents.
         today_articles = [a for a in all_today if a["source"] not in NEWSLETTER_SOURCES]
         if not today_articles:
             print("[auto-refresh] No articles collected for today.")
             return {"ok": False, "error": "No articles collected for today"}
 
-        today_articles = embed_articles(today_articles)
+        try:
+            today_articles = embed_articles(today_articles)
+        except OllamaUnavailableError as e:
+            print(f"[auto-refresh] Ollama unavailable, aborting run without touching saved clusters: {e}")
+            return {"ok": False, "error": f"Ollama unavailable: {e}"}
         for a in today_articles:
             db.upsert_article(a)
 
@@ -207,4 +224,6 @@ def status():
         "today": today,
         "articles_today": db.count_articles_by_date(today),
         "clusters_today": len(db.get_clusters_by_date(today)),
+        "git_sha": _GIT_SHA,
+        "started_at": _STARTED_AT,
     }

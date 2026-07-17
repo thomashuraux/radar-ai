@@ -18,7 +18,11 @@ def deduplicate(articles: list[dict], threshold: float = 0.85) -> list[dict]:
     un cosinus proche de 1, mais une distance euclidienne très grande.
 
     threshold=0.85 : en dessous, les articles sont considérés différents.
-    Au-dessus, le second est supprimé (on garde le premier rencontré).
+    Au-dessus, le second est tagué comme doublon du premier rencontré (survivor)
+    via `duplicate_of`, plutôt que supprimé — il reste en DB (visible dans
+    l'explorateur d'articles) mais est exclu du clustering côté
+    `db.get_clusterable_articles_by_date()`, et sa source crédite la diversité
+    du cluster du survivor via `db.get_duplicate_sources_by_date()`.
     """
     if len(articles) <= 1:
         return articles
@@ -34,16 +38,16 @@ def deduplicate(articles: list[dict], threshold: float = 0.85) -> list[dict]:
     except Exception:
         return articles
 
-    keep = []
     dropped = set()
 
     for i in range(len(articles)):
         if i in dropped:
             continue
-        keep.append(articles[i])
-        # Marquer tous les articles trop similaires à i comme "à ignorer"
+        # Marquer tous les articles trop similaires à i comme doublons de i.
+        # Un doublon ne redevient jamais un point d'ancre de comparaison.
         for j in range(i + 1, len(articles)):
-            if sim[i, j] >= threshold:
+            if j not in dropped and sim[i, j] >= threshold:
                 dropped.add(j)
+                articles[j]["duplicate_of"] = articles[i]["id"]
 
-    return keep
+    return articles
